@@ -131,6 +131,8 @@ def _check_precisions(precisions, covariance_type, n_components, n_features):
         "tied": (n_features, n_features),
         "diag": (n_components, n_features),
         "spherical": (n_components,),
+        "tied diag": (n_components, n_features),
+        "tied spherical": (n_components)
     }
     _check_shape(
         precisions, precisions_shape[covariance_type], "%s precision" % covariance_type
@@ -141,6 +143,8 @@ def _check_precisions(precisions, covariance_type, n_components, n_features):
         "tied": _check_precision_matrix,
         "diag": _check_precision_positivity,
         "spherical": _check_precision_positivity,
+        "tied diag": _check_precision_positivity,
+        "tied spherical": _check_precision_positivity
     }
     _check_precisions[covariance_type](precisions, covariance_type)
     return precisions
@@ -256,6 +260,15 @@ def _estimate_gaussian_covariances_spherical(resp, X, nk, means, reg_covar):
     return _estimate_gaussian_covariances_diag(resp, X, nk, means, reg_covar).mean(1)
 
 
+def _estimate_gaussian_covariances_tied_diagonal(resp, X, nk, means, reg_covar):
+    full_tied = _estimate_gaussian_covariances_tied(resp, X, nk, means, reg_covar)
+    return np.array([full_tied.diagonal()] * len(nk))
+
+
+def _estimate_gaussian_covariances_tied_spherical(resp, X, nk, means, reg_covar):
+    return _estimate_gaussian_covariances_tied_diagonal(resp, X, nk, means, reg_covar).mean(1)
+
+
 def _estimate_gaussian_parameters(X, resp, reg_covar, covariance_type):
     """Estimate the Gaussian distribution parameters.
 
@@ -292,6 +305,8 @@ def _estimate_gaussian_parameters(X, resp, reg_covar, covariance_type):
         "tied": _estimate_gaussian_covariances_tied,
         "diag": _estimate_gaussian_covariances_diag,
         "spherical": _estimate_gaussian_covariances_spherical,
+        "tied diag": _estimate_gaussian_covariances_tied_diagonal,
+        "tied spherical": _estimate_gaussian_covariances_tied_spherical
     }[covariance_type](resp, X, nk, means, reg_covar)
     return nk, means, covariances
 
@@ -436,7 +451,7 @@ def _compute_log_det_cholesky(matrix_chol, covariance_type, n_features):
     elif covariance_type == "tied":
         log_det_chol = np.sum(np.log(np.diag(matrix_chol)))
 
-    elif covariance_type == "diag":
+    elif covariance_type == "diag" or covariance_type == "tied diag":
         log_det_chol = np.sum(np.log(matrix_chol), axis=1)
 
     else:
@@ -487,7 +502,7 @@ def _estimate_log_gaussian_prob(X, means, precisions_chol, covariance_type):
             y = np.dot(X, precisions_chol) - np.dot(mu, precisions_chol)
             log_prob[:, k] = np.sum(np.square(y), axis=1)
 
-    elif covariance_type == "diag":
+    elif covariance_type == "diag" or covariance_type == "tied diag":
         precisions = precisions_chol**2
         log_prob = (
             np.sum((means**2 * precisions), 1)
@@ -495,7 +510,7 @@ def _estimate_log_gaussian_prob(X, means, precisions_chol, covariance_type):
             + np.dot(X**2, precisions.T)
         )
 
-    elif covariance_type == "spherical":
+    elif covariance_type == "spherical" or covariance_type == "tied spherical":
         precisions = precisions_chol**2
         log_prob = (
             np.sum(means**2, 1) * precisions
@@ -692,7 +707,7 @@ class GaussianMixture(BaseMixture):
 
     _parameter_constraints: dict = {
         **BaseMixture._parameter_constraints,
-        "covariance_type": [StrOptions({"full", "tied", "diag", "spherical"})],
+        "covariance_type": [StrOptions({"full", "tied", "diag", "spherical", "tied diag", "tied spherical"})],
         "weights_init": ["array-like", None],
         "means_init": ["array-like", None],
         "precisions_init": ["array-like", None],
@@ -754,19 +769,6 @@ class GaussianMixture(BaseMixture):
                 n_features,
             )
 
-    def _initialize_parameters(self, X, random_state):
-        # If all the initial parameters are all provided, then there is no need to run
-        # the initialization.
-        compute_resp = (
-            self.weights_init is None
-            or self.means_init is None
-            or self.precisions_init is None
-        )
-        if compute_resp:
-            super()._initialize_parameters(X, random_state)
-        else:
-            self._initialize(X, None)
-
     def _initialize(self, X, resp):
         """Initialization of the Gaussian mixture parameters.
 
@@ -777,13 +779,11 @@ class GaussianMixture(BaseMixture):
         resp : array-like of shape (n_samples, n_components)
         """
         n_samples, _ = X.shape
-        weights, means, covariances = None, None, None
-        if resp is not None:
-            weights, means, covariances = _estimate_gaussian_parameters(
-                X, resp, self.reg_covar, self.covariance_type
-            )
-            if self.weights_init is None:
-                weights /= n_samples
+
+        weights, means, covariances = _estimate_gaussian_parameters(
+            X, resp, self.reg_covar, self.covariance_type
+        )
+        weights /= n_samples
 
         self.weights_ = weights if self.weights_init is None else self.weights_init
         self.means_ = means if self.means_init is None else self.means_init
@@ -864,11 +864,11 @@ class GaussianMixture(BaseMixture):
         _, n_features = self.means_.shape
         if self.covariance_type == "full":
             cov_params = self.n_components * n_features * (n_features + 1) / 2.0
-        elif self.covariance_type == "diag":
+        elif self.covariance_type == "diag" or self.covariance_type == "tied diag":
             cov_params = self.n_components * n_features
         elif self.covariance_type == "tied":
             cov_params = n_features * (n_features + 1) / 2.0
-        elif self.covariance_type == "spherical":
+        elif self.covariance_type == "spherical" or self.covariance_type == "tied spherical":
             cov_params = self.n_components
         mean_params = n_features * self.n_components
         return int(cov_params + mean_params + self.n_components - 1)
