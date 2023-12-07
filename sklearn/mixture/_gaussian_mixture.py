@@ -103,9 +103,11 @@ def _check_precisions(precisions, covariance_type, n_components, n_features):
     ----------
     precisions : array-like
         'full' : shape of (n_components, n_features, n_features)
-        'tied' : shape of (n_features, n_features)
+        'tied full' : shape of (n_features, n_features)
         'diag' : shape of (n_components, n_features)
         'spherical' : shape of (n_components,)
+        'tied diag' : shape of (n_components, n_features)
+        'tied spherical' : shape of (n_components)
 
     covariance_type : str
 
@@ -128,7 +130,7 @@ def _check_precisions(precisions, covariance_type, n_components, n_features):
 
     precisions_shape = {
         "full": (n_components, n_features, n_features),
-        "tied": (n_features, n_features),
+        "tied full": (n_features, n_features),
         "diag": (n_components, n_features),
         "spherical": (n_components,),
         "tied diag": (n_components, n_features),
@@ -140,7 +142,7 @@ def _check_precisions(precisions, covariance_type, n_components, n_features):
 
     _check_precisions = {
         "full": _check_precisions_full,
-        "tied": _check_precision_matrix,
+        "tied full": _check_precision_matrix,
         "diag": _check_precision_positivity,
         "spherical": _check_precision_positivity,
         "tied diag": _check_precision_positivity,
@@ -302,7 +304,7 @@ def _estimate_gaussian_parameters(X, resp, reg_covar, covariance_type):
     means = np.dot(resp.T, X) / nk[:, np.newaxis]
     covariances = {
         "full": _estimate_gaussian_covariances_full,
-        "tied": _estimate_gaussian_covariances_tied,
+        "tied full": _estimate_gaussian_covariances_tied,
         "diag": _estimate_gaussian_covariances_diag,
         "spherical": _estimate_gaussian_covariances_spherical,
         "tied diag": _estimate_gaussian_covariances_tied_diagonal,
@@ -347,7 +349,7 @@ def _compute_precision_cholesky(covariances, covariance_type):
             precisions_chol[k] = linalg.solve_triangular(
                 cov_chol, np.eye(n_features), lower=True
             ).T
-    elif covariance_type == "tied":
+    elif covariance_type == "tied full":
         _, n_features = covariances.shape
         try:
             cov_chol = linalg.cholesky(covariances, lower=True)
@@ -409,7 +411,7 @@ def _compute_precision_cholesky_from_precisions(precisions, covariance_type):
                 for precision in precisions
             ]
         )
-    elif covariance_type == "tied":
+    elif covariance_type == "tied full":
         precisions_cholesky = _flipudlr(
             linalg.cholesky(_flipudlr(precisions), lower=True)
         )
@@ -448,7 +450,7 @@ def _compute_log_det_cholesky(matrix_chol, covariance_type, n_features):
             np.log(matrix_chol.reshape(n_components, -1)[:, :: n_features + 1]), 1
         )
 
-    elif covariance_type == "tied":
+    elif covariance_type == "tied full":
         log_det_chol = np.sum(np.log(np.diag(matrix_chol)))
 
     elif covariance_type == "diag" or covariance_type == "tied diag":
@@ -472,9 +474,11 @@ def _estimate_log_gaussian_prob(X, means, precisions_chol, covariance_type):
     precisions_chol : array-like
         Cholesky decompositions of the precision matrices.
         'full' : shape of (n_components, n_features, n_features)
-        'tied' : shape of (n_features, n_features)
+        'tied full' : shape of (n_features, n_features)
         'diag' : shape of (n_components, n_features)
         'spherical' : shape of (n_components,)
+        'tied diag' : shape of (n_components, n_features)
+        'tied spherical' : shape of (n_components)
 
     covariance_type : {'full', 'tied', 'diag', 'spherical'}
 
@@ -496,7 +500,7 @@ def _estimate_log_gaussian_prob(X, means, precisions_chol, covariance_type):
             y = np.dot(X, prec_chol) - np.dot(mu, prec_chol)
             log_prob[:, k] = np.sum(np.square(y), axis=1)
 
-    elif covariance_type == "tied":
+    elif covariance_type == "tied full":
         log_prob = np.empty((n_samples, n_components))
         for k, mu in enumerate(means):
             y = np.dot(X, precisions_chol) - np.dot(mu, precisions_chol)
@@ -592,9 +596,11 @@ class GaussianMixture(BaseMixture):
         The shape depends on 'covariance_type'::
 
             (n_components,)                        if 'spherical',
-            (n_features, n_features)               if 'tied',
+            (n_features, n_features)               if 'tied full',
             (n_components, n_features)             if 'diag',
-            (n_components, n_features, n_features) if 'full'
+            (n_components, n_features, n_features) if 'full',
+            (n_features, n_features)               if 'tied diag',
+            (n_components)                         if 'tied spherical'
 
     random_state : int, RandomState instance or None, default=None
         Controls the random seed given to the method chosen to initialize the
@@ -634,9 +640,11 @@ class GaussianMixture(BaseMixture):
         The shape depends on `covariance_type`::
 
             (n_components,)                        if 'spherical',
-            (n_features, n_features)               if 'tied',
+            (n_features, n_features)               if 'tied full',
             (n_components, n_features)             if 'diag',
-            (n_components, n_features, n_features) if 'full'
+            (n_components, n_features, n_features) if 'full',
+            (n_features, n_features)               if 'tied diag',
+            (n_components)                         if 'tied spherical'
 
     precisions_ : array-like
         The precision matrices for each component in the mixture. A precision
@@ -648,9 +656,11 @@ class GaussianMixture(BaseMixture):
         The shape depends on `covariance_type`::
 
             (n_components,)                        if 'spherical',
-            (n_features, n_features)               if 'tied',
+            (n_features, n_features)               if 'tied full',
             (n_components, n_features)             if 'diag',
-            (n_components, n_features, n_features) if 'full'
+            (n_components, n_features, n_features) if 'full',
+            (n_features, n_features)               if 'tied diag',
+            (n_components)                         if 'tied spherical'
 
     precisions_cholesky_ : array-like
         The cholesky decomposition of the precision matrices of each mixture
@@ -662,9 +672,11 @@ class GaussianMixture(BaseMixture):
         time. The shape depends on `covariance_type`::
 
             (n_components,)                        if 'spherical',
-            (n_features, n_features)               if 'tied',
+            (n_features, n_features)               if 'tied full',
             (n_components, n_features)             if 'diag',
-            (n_components, n_features, n_features) if 'full'
+            (n_components, n_features, n_features) if 'full',
+            (n_features, n_features)               if 'tied diag',
+            (n_components)                         if 'tied spherical'
 
     converged_ : bool
         True when convergence was reached in fit(), False otherwise.
@@ -707,7 +719,7 @@ class GaussianMixture(BaseMixture):
 
     _parameter_constraints: dict = {
         **BaseMixture._parameter_constraints,
-        "covariance_type": [StrOptions({"full", "tied", "diag", "spherical", "tied diag", "tied spherical"})],
+        "covariance_type": [StrOptions({"full", "tied full", "diag", "spherical", "tied diag", "tied spherical"})],
         "weights_init": ["array-like", None],
         "means_init": ["array-like", None],
         "precisions_init": ["array-like", None],
@@ -852,7 +864,7 @@ class GaussianMixture(BaseMixture):
             for k, prec_chol in enumerate(self.precisions_cholesky_):
                 self.precisions_[k] = np.dot(prec_chol, prec_chol.T)
 
-        elif self.covariance_type == "tied":
+        elif self.covariance_type == "tied full":
             self.precisions_ = np.dot(
                 self.precisions_cholesky_, self.precisions_cholesky_.T
             )
@@ -866,7 +878,7 @@ class GaussianMixture(BaseMixture):
             cov_params = self.n_components * n_features * (n_features + 1) / 2.0
         elif self.covariance_type == "diag" or self.covariance_type == "tied diag":
             cov_params = self.n_components * n_features
-        elif self.covariance_type == "tied":
+        elif self.covariance_type == "tied full":
             cov_params = n_features * (n_features + 1) / 2.0
         elif self.covariance_type == "spherical" or self.covariance_type == "tied spherical":
             cov_params = self.n_components
