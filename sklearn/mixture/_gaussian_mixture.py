@@ -185,7 +185,7 @@ def _estimate_gaussian_covariances_full(resp, X, nk, means, reg_covar):
     return covariances
 
 
-def _estimate_gaussian_covariances_tied(resp, X, nk, means, reg_covar):
+def _estimate_gaussian_covariances_tied_full(resp, X, nk, means, reg_covar):
     """Estimate the tied covariance matrix.
 
     Parameters
@@ -263,11 +263,49 @@ def _estimate_gaussian_covariances_spherical(resp, X, nk, means, reg_covar):
 
 
 def _estimate_gaussian_covariances_tied_diagonal(resp, X, nk, means, reg_covar):
-    full_tied = _estimate_gaussian_covariances_tied(resp, X, nk, means, reg_covar)
-    return np.array([full_tied.diagonal()] * len(nk))
+    """Estimate the diagonal of the tied covariance matrix.
+    
+    Parameters
+    ----------
+    responsibilities : array-like of shape (n_samples, n_components)
+
+    X : array-like of shape (n_samples, n_features)
+
+    nk : array-like of shape (n_components,)
+
+    means : array-like of shape (n_components, n_features)
+
+    reg_covar : float
+    
+    Returns
+    -------
+    covariances : array, shape (n_components, n_features)
+        The diagonal of the tied covariance matrix of all components repeated for each component.
+    """
+    tied_full = _estimate_gaussian_covariances_tied_full(resp, X, nk, means, reg_covar)
+    return np.array([tied_full.diagonal()] * len(nk))
 
 
 def _estimate_gaussian_covariances_tied_spherical(resp, X, nk, means, reg_covar):
+    """Estimate the diagonal of the tied covariance matrix.
+
+    Parameters
+    ----------
+    responsibilities : array-like of shape (n_samples, n_components)
+
+    X : array-like of shape (n_samples, n_features)
+
+    nk : array-like of shape (n_components,)
+
+    means : array-like of shape (n_components, n_features)
+
+    reg_covar : float
+
+    Returns
+    -------
+    covariances : array, shape (n_components,)
+        The variance value of the tied components repeated once for each component.
+    """
     return _estimate_gaussian_covariances_tied_diagonal(resp, X, nk, means, reg_covar).mean(1)
 
 
@@ -304,7 +342,7 @@ def _estimate_gaussian_parameters(X, resp, reg_covar, covariance_type):
     means = np.dot(resp.T, X) / nk[:, np.newaxis]
     covariances = {
         "full": _estimate_gaussian_covariances_full,
-        "tied full": _estimate_gaussian_covariances_tied,
+        "tied full": _estimate_gaussian_covariances_tied_full,
         "diag": _estimate_gaussian_covariances_diag,
         "spherical": _estimate_gaussian_covariances_spherical,
         "tied diag": _estimate_gaussian_covariances_tied_diagonal,
